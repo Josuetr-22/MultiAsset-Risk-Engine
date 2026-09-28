@@ -1,0 +1,111 @@
+import numpy as np
+import pandas as pd
+import yfinance as yf
+import matplotlib.pyplot as plt
+
+# ==============================================================================
+# 1. COLLECTE & NETTOYAGE DE DONNÉES MULTI-ACTIFS (yfinance 2026)
+# ==============================================================================
+# Allocation multi-actifs : Actions US/EU, Obligations, Or
+portefeuille_multi_actifs = {
+    'AAPL': 0.30,    # Action Tech US
+    'MC.PA': 0.20,   # Action Luxe Europe
+    'TLT': 0.30,     # ETF Obligations d'État US (20+ ans)
+    'GLD': 0.20      # ETF Or (Matières premières / Valeur refuge)
+}
+
+tickers = list(portefeuille_multi_actifs.keys())
+poids = np.array(list(portefeuille_multi_actifs.values()))
+capital_initial = 100000  # Capital virtuel de 100 000 €
+
+print("1. Extraction et nettoyage des données multi-actifs...")
+# Utilisation de auto_adjust=True et sélection de la colonne 'Close'
+data = yf.download(tickers, start="2023-01-01", end="2026-09-01", auto_adjust=True)['Close']
+
+# Calcul des rendements logarithmiques quotidiens
+rendements = np.log(data / data.shift(1)).dropna()
+
+# Rendement quotidien global du portefeuille
+rendements_portefeuille = rendements.dot(poids)
+
+# ==============================================================================
+# 2. ÉTUDE DES CORRÉLATIONS & RATIO DE SHARPE
+# ==============================================================================
+print("2. Calcul des matrices de corrélation et du Ratio de Sharpe...")
+
+# Matrice de corrélation inter-classes d'actifs
+matrice_corr = rendements.corr()
+
+# Taux sans risque annuel (3%)
+taux_sans_risque = 0.03
+rendement_annuel = rendements_portefeuille.mean() * 252
+volatilite_annuelle = rendements_portefeuille.std() * np.sqrt(252)
+
+# Ratio de Sharpe pour évaluer l'efficience de l'allocation
+ratio_sharpe = (rendement_annuel - taux_sans_risque) / volatilite_annuelle
+
+# ==============================================================================
+# 3. MESURE DU RISQUE (VaR 95%) & STRESS-TESTING
+# ==============================================================================
+print("3. Calcul de la VaR 95% et simulation de scénarios de crise...")
+
+# Value-at-Risk (VaR) Historique à 95% (1 jour)
+var_95_pct = np.percentile(rendements_portefeuille, 5)
+var_95_euros = var_95_pct * capital_initial
+
+# Scénario de Stress-Test : Krach macroéconomique majeur (-15% sur le marché)
+scenario_krach = -0.15
+perte_stress_test = capital_initial * scenario_krach
+
+# ==============================================================================
+# 4. DASHBOARD DE REPORTING DYNAMIQUE
+# ==============================================================================
+plt.style.use('seaborn-v0_8-whitegrid')
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+fig.suptitle("ANALYSE RENDEMENT-RISQUE & ALLOCATION MULTI-ACTIFS", fontsize=12, fontweight='bold')
+
+# --- Graphique 1 : Matrice de Corrélation Inter-Actifs (Heatmap) ---
+cax = ax2.matshow(matrice_corr, cmap='coolwarm', vmin=-1, vmax=1)
+fig.colorbar(cax, ax=ax2, label="Coefficient de Corrélation")
+ax2.set_xticks(np.arange(len(tickers)))
+ax2.set_yticks(np.arange(len(tickers)))
+ax2.set_xticklabels(tickers)
+ax2.set_yticklabels(tickers)
+ax2.set_title("Matrice de Corrélation Inter-Classes d'Actifs", fontsize=10, fontweight='bold', pad=12)
+
+# Affichage des valeurs numériques dans la matrice
+for i in range(len(tickers)):
+    for j in range(len(tickers)):
+        ax2.text(j, i, f"{matrice_corr.iloc[i, j]:.2f}", ha="center", va="center", 
+                 color="white" if abs(matrice_corr.iloc[i, j]) > 0.5 else "black", fontweight='bold')
+
+# --- Graphique 2 : Distribution des Rendements & VaR 95% ---
+ax1.hist(rendements_portefeuille * 100, bins=45, color='#2c3e50', alpha=0.75, edgecolor='black')
+ax1.axvline(var_95_pct * 100, color='#e74c3c', linestyle='--', linewidth=2, 
+            label=f'VaR 95% Historique : {var_95_pct*100:.2f}%')
+ax1.set_title("Distribution des Rendements Quotidiens & Risque de Queue", fontsize=10, fontweight='bold')
+ax1.set_xlabel("Rendement Quotidien (%)")
+ax1.set_ylabel("Fréquence")
+ax1.legend(loc='upper left')
+
+plt.tight_layout()
+
+# ==============================================================================
+# 5. RAPPORT SYNTHÉTIQUE
+# ==============================================================================
+print("\n" + "="*55)
+print("     RAPPORT RISQUE & ALLOCATION MULTI-ACTIFS (PYTHON)    ")
+print("="*55)
+print(f"• Composition : Actions (50%) | Obligations (30%) | Or (20%)")
+print(f"• Capital du Portefeuille        : {capital_initial:,.2f} €")
+print(f"• Volatilité Annuelle Globale    : {volatilite_annuelle*100:.2f} %")
+print(f"• Ratio de Sharpe du Portefeuille: {ratio_sharpe:.2f}")
+print("-" * 55)
+print(f"• Value-at-Risk (95% Historique) : {var_95_pct*100:.2f} %")
+print(f"  -> Perte maximale 1 jour (95% confiance) : {abs(var_95_euros):,.2f} €")
+print("-" * 55)
+print(f"• SCÉNARIO DE STRESS-TEST (Choc Macro -15%) :")
+print(f"  -> Perte estimée en cas de krach : {perte_stress_test:,.2f} €")
+print("="*55 + "\n")
+
+plt.show()
